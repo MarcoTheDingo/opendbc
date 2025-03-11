@@ -91,8 +91,7 @@ static bool rivian_tx_hook(const CANPacket_t *to_send) {
   return tx;
 }
 
-static int rivian_fwd_hook(int bus, int addr) {
-  int bus_fwd = -1;
+static bool rivian_fwd_hook(int bus, int addr) {
   bool block_msg = false;
 
   if (bus == 0) {
@@ -104,10 +103,6 @@ static int rivian_fwd_hook(int bus, int addr) {
     // VDM_AdasSts: for canceling stock ACC
     if ((addr == 0x162) && !rivian_longitudinal) {
       block_msg = true;
-    }
-
-    if (!block_msg) {
-      bus_fwd = 2;
     }
   }
 
@@ -121,13 +116,9 @@ static int rivian_fwd_hook(int bus, int addr) {
     if (rivian_longitudinal && (addr == 0x160)) {
       block_msg = true;
     }
-
-    if (!block_msg) {
-      bus_fwd = 0;
-    }
   }
 
-  return bus_fwd;
+  return block_msg;
 }
 
 static safety_config rivian_init(uint16_t param) {
@@ -138,6 +129,7 @@ static safety_config rivian_init(uint16_t param) {
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, .frequency = 50U, .ignore_checksum = true, .ignore_counter = true}, { 0 }, { 0 }}},   // ESP_Status (speed)
+    {.msg = {{0x380, 0, 5, .frequency = 100U, .ignore_checksum = true, .ignore_counter = true}, { 0 }, { 0 }}},  // EPAS_SystemStatus (driver torque)
     {.msg = {{0x150, 0, 7, .frequency = 50U, .ignore_checksum = true, .ignore_counter = true}, { 0 }, { 0 }}},   // VDM_PropStatus (gas pedal)
     {.msg = {{0x38f, 0, 6, .frequency = 50U, .ignore_checksum = true, .ignore_counter = true}, { 0 }, { 0 }}},   // iBESP2 (brakes)
     {.msg = {{0x100, 2, 8, .frequency = 100U, .ignore_checksum = true, .ignore_counter = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)

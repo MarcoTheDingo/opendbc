@@ -24,11 +24,18 @@
 #define TOYOTA_COMMON_RX_CHECKS(lta)                                                                          \
   {.msg = {{ 0xaa, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 83U}, { 0 }, { 0 }}},  \
   {.msg = {{0x260, 0, 8, .ignore_counter = true, .quality_flag = (lta), .frequency = 50U}, { 0 }, { 0 }}},    \
-  {.msg = {{0x1D2, 0, 8, .ignore_counter = true, .frequency = 33U},                                           \
-           {0x176, 0, 8, .ignore_counter = true, .frequency = 32U}, { 0 }}},                                  \
-  {.msg = {{0x101, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 50U},                  \
-           {0x224, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 40U},                  \
-           {0x226, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 40U}}},                \
+
+#define TOYOTA_RX_CHECKS(lta)                                                                          \
+  TOYOTA_COMMON_RX_CHECKS(lta)                                                                         \
+  {.msg = {{0x1D2, 0, 8, .ignore_counter = true, .frequency = 33U}, { 0 }, { 0 }}},                    \
+  {.msg = {{0x224, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 40U},           \
+           {0x226, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 40U}, { 0 }}},  \
+
+#define TOYOTA_SECOC_RX_CHECKS                                                                                \
+  TOYOTA_COMMON_RX_CHECKS(false)                                                                              \
+  {.msg = {{0x176, 0, 8, .ignore_counter = true, .frequency = 32U}, { 0 }, { 0 }}},                           \
+  {.msg = {{0x116, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 42U}, { 0 }, { 0 }}},  \
+  {.msg = {{0x101, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 50U}, { 0 }, { 0 }}},  \
 
 static bool toyota_secoc = false;
 static bool toyota_alt_brake = false;
@@ -360,16 +367,22 @@ static safety_config toyota_init(uint16_t param) {
     SET_TX_MSGS(TOYOTA_LONG_TX_MSGS, ret);
   }
 
-  if (toyota_lta) {
+  if (toyota_secoc) {
+    static RxCheck toyota_secoc_rx_checks[] = {
+      TOYOTA_SECOC_RX_CHECKS
+    };
+
+    SET_RX_CHECKS(toyota_secoc_rx_checks, ret);
+  } else if (toyota_lta) {
     // Check the quality flag for angle measurement when using LTA, since it's not set on TSS-P cars
     static RxCheck toyota_lta_rx_checks[] = {
-      TOYOTA_COMMON_RX_CHECKS(true)
+      TOYOTA_RX_CHECKS(true)
     };
 
     SET_RX_CHECKS(toyota_lta_rx_checks, ret);
   } else {
     static RxCheck toyota_lka_rx_checks[] = {
-      TOYOTA_COMMON_RX_CHECKS(false)
+      TOYOTA_RX_CHECKS(false)
     };
 
     SET_RX_CHECKS(toyota_lka_rx_checks, ret);
@@ -378,14 +391,8 @@ static safety_config toyota_init(uint16_t param) {
   return ret;
 }
 
-static int toyota_fwd_hook(int bus_num, int addr) {
-
-  int bus_fwd = -1;
-
-  if (bus_num == 0) {
-    bus_fwd = 2;
-  }
-
+static bool toyota_fwd_hook(int bus_num, int addr) {
+  bool block_msg = false;
   if (bus_num == 2) {
     // block stock lkas messages and stock acc messages (if OP is doing ACC)
     // in TSS2, 0x191 is LTA which we need to block to avoid controls collision
@@ -394,13 +401,10 @@ static int toyota_fwd_hook(int bus_num, int addr) {
     is_lkas_msg |= toyota_secoc && (addr == 0x131);
     // in TSS2 the camera does ACC as well, so filter 0x343
     bool is_acc_msg = (addr == 0x343);
-    bool block_msg = is_lkas_msg || (is_acc_msg && !toyota_stock_longitudinal);
-    if (!block_msg) {
-      bus_fwd = 0;
-    }
+    block_msg = is_lkas_msg || (is_acc_msg && !toyota_stock_longitudinal);
   }
 
-  return bus_fwd;
+  return block_msg;
 }
 
 const safety_hooks toyota_hooks = {
